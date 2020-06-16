@@ -7,6 +7,7 @@ import platform
 import re
 import sys
 import subprocess
+import copy
 
 from functools import partial
 from collections import defaultdict
@@ -125,6 +126,14 @@ class MainWindow(QMainWindow, WindowMixin):
         useDefaultLabelContainer = QWidget()
         useDefaultLabelContainer.setLayout(useDefaultLabelQHBoxLayout)
 
+        # Create a widget for inhert notation when load new picture
+        self.inhertChecbox = QCheckBox("inhert from previous picture")
+        self.inhertForNewPicture = False
+        self.inhertChecbox.setChecked(self.inhertForNewPicture)
+        self.inhertChecbox.stateChanged.connect(self.inhertChecked)
+        self.shapesForInhert_Yolo = []
+
+
         # Create a widget for edit and diffc button
         self.diffcButton = QCheckBox(getStr('useDifficult'))
         self.diffcButton.setChecked(False)
@@ -133,6 +142,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.editButton.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
 
         # Add some of widgets to listLayout
+        listLayout.addWidget(self.inhertChecbox)
         listLayout.addWidget(self.editButton)
         listLayout.addWidget(self.diffcButton)
         listLayout.addWidget(useDefaultLabelContainer)
@@ -230,6 +240,8 @@ class MainWindow(QMainWindow, WindowMixin):
 
         save_format = action('&PascalVOC', self.change_format,
                       'Ctrl+', 'format_voc', getStr('changeSaveFormat'), enabled=True)
+        # not ready for PASCALVOC
+        self.inhertChecbox.setEnabled(False)
 
         saveAs = action(getStr('saveAs'), self.saveFileAs,
                         'Ctrl+Shift+S', 'save-as', getStr('saveAsDetail'), enabled=False)
@@ -501,12 +513,17 @@ class MainWindow(QMainWindow, WindowMixin):
             self.usingYoloFormat = False
             LabelFile.suffix = XML_EXT
 
+            # not ready for PASCALVOC
+            self.inhertChecbox.setEnabled(False)
+
         elif save_format == FORMAT_YOLO:
             self.actions.save_format.setText(FORMAT_YOLO)
             self.actions.save_format.setIcon(newIcon("format_yolo"))
             self.usingPascalVocFormat = False
             self.usingYoloFormat = True
             LabelFile.suffix = TXT_EXT
+
+            self.inhertChecbox.setEnabled(True)
 
     def change_format(self):
         if self.usingPascalVocFormat: self.set_format(FORMAT_YOLO)
@@ -688,6 +705,11 @@ class MainWindow(QMainWindow, WindowMixin):
             if filename:
                 self.loadFile(filename)
 
+    def inhertChecked(self, item= None):
+        self.inhertForNewPicture = self.inhertChecbox.isChecked()
+        
+
+
     # Add chris
     def btnstate(self, item= None):
         """ Function to handle difficult examples
@@ -810,8 +832,11 @@ class MainWindow(QMainWindow, WindowMixin):
                         difficult = s.difficult)
 
         shapes = [format_shape(shape) for shape in self.canvas.shapes]
+
+
         # Can add differrent annotation formats here
         try:
+            boxlist = {}
             if self.usingPascalVocFormat is True:
                 if annotationFilePath[-4:].lower() != ".xml":
                     annotationFilePath += XML_EXT
@@ -820,8 +845,10 @@ class MainWindow(QMainWindow, WindowMixin):
             elif self.usingYoloFormat is True:
                 if annotationFilePath[-4:].lower() != ".txt":
                     annotationFilePath += TXT_EXT
-                self.labelFile.saveYoloFormat(annotationFilePath, shapes, self.filePath, self.imageData, self.labelHist,
+                annotations = self.labelFile.saveYoloFormat(annotationFilePath, shapes, self.filePath, self.imageData, self.labelHist,
                                                    self.lineColor.getRgb(), self.fillColor.getRgb())
+                if (self.inhertForNewPicture):
+                    self.shapesForInhert_Yolo = annotations
             else:
                 self.labelFile.save(annotationFilePath, shapes, self.filePath, self.imageData,
                                     self.lineColor.getRgb(), self.fillColor.getRgb())
@@ -1063,18 +1090,36 @@ class MainWindow(QMainWindow, WindowMixin):
                 """Annotation file priority:
                 PascalXML > YOLO
                 """
+                if self.loadPascalXMLByFilename(xmlPath):
+                    pass
+                elif self.loadYOLOTXTByFilename(txtPath):
+                    pass
+                elif self.inhertForNewPicture:
+                    self.loadYOLOByteShapes(self.shapesForInhert_Yolo)
+
+                """
                 if os.path.isfile(xmlPath):
                     self.loadPascalXMLByFilename(xmlPath)
-                elif os.path.isfile(txtPath):
+                elif os.path.isfile(txtPath)
                     self.loadYOLOTXTByFilename(txtPath)
+                """
             else:
                 xmlPath = os.path.splitext(filePath)[0] + XML_EXT
                 txtPath = os.path.splitext(filePath)[0] + TXT_EXT
+
+                if self.loadPascalXMLByFilename(xmlPath):
+                    pass
+                elif self.loadYOLOTXTByFilename(txtPath):
+                    pass
+                elif self.inhertForNewPicture:
+                    self.loadYOLOByteShapes(self.shapesForInhert_Yolo)
+
+                """                
                 if os.path.isfile(xmlPath):
                     self.loadPascalXMLByFilename(xmlPath)
                 elif os.path.isfile(txtPath):
                     self.loadYOLOTXTByFilename(txtPath)
-
+                """
             self.setWindowTitle(__appname__ + ' ' + filePath)
 
             # Default : select last item if there is at least one item
@@ -1443,9 +1488,9 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def loadPascalXMLByFilename(self, xmlPath):
         if self.filePath is None:
-            return
+            return False
         if os.path.isfile(xmlPath) is False:
-            return
+            return False
 
         self.set_format(FORMAT_PASCALVOC)
 
@@ -1453,12 +1498,13 @@ class MainWindow(QMainWindow, WindowMixin):
         shapes = tVocParseReader.getShapes()
         self.loadLabels(shapes)
         self.canvas.verified = tVocParseReader.verified
+        return True
 
     def loadYOLOTXTByFilename(self, txtPath):
         if self.filePath is None:
-            return
+            return False
         if os.path.isfile(txtPath) is False:
-            return
+            return False
 
         self.set_format(FORMAT_YOLO)
         tYoloParseReader = YoloReader(txtPath, self.image)
@@ -1466,6 +1512,20 @@ class MainWindow(QMainWindow, WindowMixin):
         print (shapes)
         self.loadLabels(shapes)
         self.canvas.verified = tYoloParseReader.verified
+        return True
+
+    def loadYOLOByteShapes(self,shapes):
+        if len(shapes) == 0:
+            return False
+        self.set_format(FORMAT_YOLO)
+        tYoloParseReader = YoloReader(shapes, self.image)
+        shapes = tYoloParseReader.getShapes()
+        print (shapes)
+        self.loadLabels(shapes)
+        self.canvas.verified = tYoloParseReader.verified
+        self.setDirty()
+        return True
+
 
     def togglePaintLabelsOption(self):
         for shape in self.canvas.shapes:

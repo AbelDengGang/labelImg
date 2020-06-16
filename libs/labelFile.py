@@ -80,8 +80,8 @@ class LabelFile(object):
             bndbox = LabelFile.convertPoints2BndBox(points)
             writer.addBndBox(bndbox[0], bndbox[1], bndbox[2], bndbox[3], label, difficult)
 
-        writer.save(targetFile=filename, classList=classList)
-        return
+        annotations = writer.save(targetFile=filename, classList=classList)
+        return annotations
 
     def toggleVerify(self):
         self.verified = not self.verified

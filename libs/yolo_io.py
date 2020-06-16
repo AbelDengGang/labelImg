@@ -10,6 +10,7 @@ from libs.constants import DEFAULT_ENCODING
 
 TXT_EXT = '.txt'
 ENCODE_METHOD = DEFAULT_ENCODING
+PRE_CLASS_FILE = None
 
 class YOLOWriter:
 
@@ -51,8 +52,11 @@ class YOLOWriter:
 
     def save(self, classList=[], targetFile=None):
 
+        global PRE_CLASS_FILE
+
         out_file = None #Update yolo .txt
         out_class_file = None   #Update class list .txt
+        annotations = []
 
         if targetFile is None:
             out_file = open(
@@ -65,10 +69,13 @@ class YOLOWriter:
             classesFile = os.path.join(os.path.dirname(os.path.abspath(targetFile)), "classes.txt")
             out_class_file = open(classesFile, 'w')
 
+        # record the class file for YoloReader
+        PRE_CLASS_FILE = classesFile
 
         for box in self.boxlist:
             classIndex, xcen, ycen, w, h = self.BndBox2YoloLine(box, classList)
             # print (classIndex, xcen, ycen, w, h)
+            annotations.append([classIndex,xcen,ycen,w,h])
             out_file.write("%d %.6f %.6f %.6f %.6f\n" % (classIndex, xcen, ycen, w, h))
 
         # print (classList)
@@ -78,40 +85,88 @@ class YOLOWriter:
 
         out_class_file.close()
         out_file.close()
+        return annotations
 
 
 
 class YoloReader:
 
-    def __init__(self, filepath, image, classListPath=None):
+
+    def __init__(self, source, image, classListPath=None):
+        """
+
+        :param source: Source for notation.
+                    When it is a string, consider it as annotation file name;
+                    When it is a list, consider it as annotation list
+        :param image: Picture
+        :param classListPath: Class list file path. When it is none, this function infer it in bellow case:
+               When input an annotation file, use the class list file in the same folder of the notation file;
+               When  input a annotation list, use the global PRE_CLASS_FILE. The PRE_CLASS_FILE is record when call save
+        """
+
+        global PRE_CLASS_FILE
+
         # shapes type:
         # [labbel, [(x1,y1), (x2,y2), (x3,y3), (x4,y4)], color, color, difficult]
         self.shapes = []
-        self.filepath = filepath
 
-        if classListPath is None:
-            dir_path = os.path.dirname(os.path.realpath(self.filepath))
-            self.classListPath = os.path.join(dir_path, "classes.txt")
+        self.loadAnnotationsFromFile = True
+
+        if isinstance(source, str):
+            self.loadAnnotationsFromFile = True
+            self.filepath = source
         else:
+            self.loadAnnotationsFromFile = False
+
+        # get class list file name
+        if classListPath is not None:
             self.classListPath = classListPath
+        else:
+            if self.loadAnnotationsFromFile:
+                dir_path = os.path.dirname(os.path.realpath(self.filepath))
+                self.classListPath = os.path.join(dir_path, "classes.txt")
+            else:
+                self.classListPath = PRE_CLASS_FILE
 
-        # print (filepath, self.classListPath)
+        # try to load class list
+        try:
+            classesFile = open(self.classListPath, 'r')
+        except:
+            # can not open file
+            print("Can not open class list file: ", self.classListPath)
+            return
 
-        classesFile = open(self.classListPath, 'r')
         self.classes = classesFile.read().strip('\n').split('\n')
+        if len(self.classes) == 0:
+            print("Can not load class list from ", self.classListPath)
+            return
 
-        # print (self.classes)
 
         imgSize = [image.height(), image.width(),
-                      1 if image.isGrayscale() else 3]
+                   1 if image.isGrayscale() else 3]
 
         self.imgSize = imgSize
 
         self.verified = False
-        # try:
-        self.parseYoloFormat()
-        # except:
-            # pass
+
+
+        if self.loadAnnotationsFromFile:
+
+            self.filepath = source
+            # try:
+            self.parseYoloFormat()
+            # except:
+                # pass
+
+        else:
+
+            for classIndex, xcen, ycen, w, h in source:
+                label, xmin, ymin, xmax, ymax = self.yoloLine2Shape(classIndex, xcen, ycen, w, h)
+
+                # Caveat: difficult flag is discarded when saved as yolo format.
+                self.addShape(label, xmin, ymin, xmax, ymax, False)
+
+
 
     def getShapes(self):
         return self.shapes
